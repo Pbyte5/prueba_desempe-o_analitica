@@ -2,13 +2,19 @@ CREATE TABLE IF NOT EXISTS dim_product (
     stock_code                  TEXT PRIMARY KEY,      
     description                 TEXT NOT NULL,        
     category                    TEXT NOT NULL,
-    category_source             TEXT NOT NULL CHECK (category_source IN ('rule', 'default')),
+    category_source             TEXT NOT NULL CHECK (category_source IN ('rule', 'default', 'api')),
+    supplier_country            TEXT NOT NULL DEFAULT 'Unspecified',
+    is_active                   BOOLEAN NOT NULL DEFAULT TRUE,
     n_raw_description_variants  INTEGER NOT NULL,      
     n_description_variants      INTEGER NOT NULL,
     has_inconsistent_description BOOLEAN NOT NULL,
     first_seen_date             DATE NOT NULL,
     last_seen_date              DATE NOT NULL
 );
+
+ALTER TABLE dim_product
+    ADD COLUMN IF NOT EXISTS supplier_country TEXT NOT NULL DEFAULT 'Unspecified',
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS fact_sales (
     sale_id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

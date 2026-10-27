@@ -1,6 +1,9 @@
 """Transformation: cleans, standardizes, validates, and transforms raw parquet datasets into clean analytics-ready datasets."""
 
+import json
 import re 
+from urllib.error import URLError
+from urllib.request import urlopen
 from pathlib import Path
 
 import numpy as np
@@ -123,7 +126,7 @@ def pick_category(description, rules):
     return DEFAULT_CATEGORY, "default"
 
 
-def build_products(accepted, rules):
+def build_products(accepted, rules, catalog=None):
     """Aggregates accepted transaction data to build a master catalog of unique products and their categories."""
     counts = (
         accepted.dropna(subset=["description"])
@@ -144,6 +147,15 @@ def build_products(accepted, rules):
     categories = products["description"].map(lambda text: pick_category(text, rules))
     products["category"] = categories.str[0]
     products["category_source"] = categories.str[1]
+    if catalog:
+        catalog_categories = {
+            code: item["category"]
+            for code, item in catalog.items()
+            if item.get("category")
+        }
+        api_categories = products.index.to_series().map(catalog_categories)
+        products.loc[api_categories.notna(), "category"] = api_categories.dropna()
+        products.loc[api_categories.notna(), "category_source"] = "api"
     return products.reset_index()[[
         "stock_code", "description", "category", "category_source",
         "n_raw_description_variants", "n_description_variants",
@@ -152,7 +164,7 @@ def build_products(accepted, rules):
 
 
 # --- Glue all together ---
-def transform(raw_by_source, priority, timezone, rules):
+def transform(raw_by_source, priority, timezone, rules, catalog=None):
     """Concatenates sources by priority, standardizes, validates, filters rejects/duplicates, and splits into sales/returns/products."""
     raw = pd.concat([raw_by_source[source] for source in priority], ignore_index=True) 
     df = standardize(raw, timezone)
@@ -175,7 +187,7 @@ def transform(raw_by_source, priority, timezone, rules):
     returns["return_amount"] = (returns["quantity_returned"] * returns["unit_price"]).round(2)
     returns["movement_type"] = np.where(returns["invoice_no"].str.startswith("C"), "RETURN", "ADJUSTMENT")
 
-    products = build_products(accepted, rules)
+    products = build_products(accepted, rules, catalog)
     stats = {
         "rows_in": len(raw),
         "sales_rows": len(sales),
@@ -190,10 +202,35 @@ def transform(raw_by_source, priority, timezone, rules):
     return {"sales": sales, "returns": returns, "rejected": rejected, "products": products, "stats": stats}
 
 
-def transform_staged(extracted, priority, timezone, rules_file, staging_dir):
+def load_product_catalog(api_url):
+    """Reads all product pages from the optional product API."""
+    if not api_url:
+        return {}
+
+    products = {}
+    offset = 0
+    page_size = 500
+    while True:
+        separator = "&" if "?" in api_url else "?"
+        url = f"{api_url.rstrip('/')}/products{separator}offset={offset}&limit={page_size}"
+        try:
+            with urlopen(url, timeout=10) as response:
+                page = json.load(response)
+        except (URLError, TimeoutError) as error:
+            raise RuntimeError(f"Could not load product catalog from {url}") from error
+
+        items = page["items"]
+        products.update({item["code"]: item for item in items})
+        offset += len(items)
+        if offset >= page["total"] or not items:
+            return products
+
+
+def transform_staged(extracted, priority, timezone, rules_file, staging_dir, product_api_url=""):
     """Transformation task: reads raw staging parquet files, applies transformations, and saves clean parquet results."""
     raw_by_source = {item["source"]: pd.read_parquet(item["path"]) for item in extracted}
-    result = transform(raw_by_source, priority, timezone, load_category_rules(Path(rules_file)))
+    catalog = load_product_catalog(product_api_url)
+    result = transform(raw_by_source, priority, timezone, load_category_rules(Path(rules_file)), catalog)
 
     paths = {}
     for name in ["sales", "returns", "rejected", "products"]:

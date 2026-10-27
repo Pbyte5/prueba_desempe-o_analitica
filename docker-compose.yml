@@ -29,6 +29,7 @@ x-airflow-common: &airflow-common
     AIRFLOW_VAR_DATAMART_DAILY_FILES: ${DATAMART_DAILY_FILE:-raw/data.csv}
     AIRFLOW_VAR_DATAMART_SOURCE_PRIORITY: ${DATAMART_SOURCE_PRIORITY:-history,daily}
     AIRFLOW_VAR_DATAMART_SOURCE_TZ: ${DATAMART_SOURCE_TZ:-Europe/London}
+    AIRFLOW_VAR_DATAMART_PRODUCTS_API_URL: ${DATAMART_PRODUCTS_API_URL-http://products-api:8000}
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./seeds:/opt/airflow/seeds:ro
@@ -39,6 +40,8 @@ x-airflow-common: &airflow-common
     postgres-airflow:
       condition: service_healthy
     postgres-dw:
+      condition: service_healthy
+    products-api:
       condition: service_healthy
 
 services:
@@ -69,13 +72,36 @@ services:
       - "${DW_HOST_PORT:-5433}:5432"
     volumes:
       - dw-data:/var/lib/postgresql/data
-      - ./sql/ddl.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
+      - ./sql/ddl/ddl.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
       - ./sql/queries:/queries:ro          # querys with  psql -f /queries/...
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DW_USER} -d ${DW_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  products-api:
+    build:
+      context: .
+      dockerfile: src/prueba_analitica/api/Dockerfile
+    environment:
+      DW_HOST: postgres-dw
+      DW_PORT: 5432
+      DW_USER: ${DW_USER}
+      DW_PASSWORD: ${DW_PASSWORD}
+      DW_DB: ${DW_DB}
+    ports:
+      - "${PRODUCTS_API_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres-dw:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   # Database migrations

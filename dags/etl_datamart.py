@@ -39,7 +39,14 @@ def etl():
         from prueba_analitica.pipeline.scripts.transform import transform_staged
         
         priority = [v.strip() for v in Variable.get("datamart_source_priority").split(",")]
-        return transform_staged([history, daily], priority, Variable.get("datamart_source_tz"), RULES_FILE, STAGING_DIR)
+        return transform_staged(
+            [history, daily],
+            priority,
+            Variable.get("datamart_source_tz"),
+            RULES_FILE,
+            STAGING_DIR,
+            Variable.get("datamart_products_api_url"),
+        )
     
     @task
     def load_to_db(processed):
