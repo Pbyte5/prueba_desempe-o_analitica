@@ -23,17 +23,14 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_ADMIN_USER}:admin
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_passwords.json
     # --- Airflow Connection ( AIRFLOW_CONN_<CONN_ID>) ---
-    AIRFLOW_CONN_DATAMART_DW: postgresql://${DW_USER}:${DW_PASSWORD}@postgres-dw:5432/${DW_DB}
+    AIRFLOW_CONN_DATAMART: postgresql://${DW_USER}:${DW_PASSWORD}@postgres-dw:5432/${DW_DB}
     # --- Airflow Variables (AIRFLOW_VAR_<KEY>) ---
-    AIRFLOW_VAR_DATAMART_HISTORY_FILE: ${DATAMART_HISTORY_FILE:-raw/online_retail_II.csv}
-    AIRFLOW_VAR_DATAMART_DAILY_FILE: ${DATAMART_DAILY_FILE:-raw/data.csv}
+    AIRFLOW_VAR_DATAMART_HISTORY_FILES: ${DATAMART_HISTORY_FILE:-raw/online_retail_II.csv}
+    AIRFLOW_VAR_DATAMART_DAILY_FILES: ${DATAMART_DAILY_FILE:-raw/data.csv}
     AIRFLOW_VAR_DATAMART_SOURCE_PRIORITY: ${DATAMART_SOURCE_PRIORITY:-history,daily}
     AIRFLOW_VAR_DATAMART_SOURCE_TZ: ${DATAMART_SOURCE_TZ:-Europe/London}
-    # --- Code ---
-    PYTHONPATH: /opt/airflow/include
   volumes:
     - ./dags:/opt/airflow/dags:ro
-    - ./include:/opt/airflow/include:ro
     - ./seeds:/opt/airflow/seeds:ro
     - ./data:/opt/airflow/data:ro
     - airflow-logs:/opt/airflow/logs
@@ -72,7 +69,7 @@ services:
       - "${DW_HOST_PORT:-5433}:5432"
     volumes:
       - dw-data:/var/lib/postgresql/data
-      - ./sql/ddl:/docker-entrypoint-initdb.d:ro
+      - ./sql/ddl.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
       - ./sql/queries:/queries:ro          # querys with  psql -f /queries/...
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DW_USER} -d ${DW_DB}"]
